@@ -4,110 +4,135 @@ import requests
 from bs4 import BeautifulSoup
 import re
 
-st.set_page_config(page_title="LegitScript Compliance Scanner", layout="wide")
+st.set_page_config(page_title="LegitScript + HIPAA Compliance Scanner", layout="wide")
 
-# Compliance rules
+# Define advanced compliance rulebook
 compliance_rules = {
     "FDA-approved semaglutide": {
-        "category": "Marketing Claims",
-        "risk": 10,
-        "fix": "Replace with: 'Compounded semaglutide is not FDA-approved and is only prescribed when appropriate.'",
-        "reference": "FDA + LegitScript: Compounded drugs must not be misrepresented as FDA-approved."
+        "category": "Misleading FDA Claim",
+        "risk": 15,
+        "description": "Do not represent compounded semaglutide as FDA-approved.",
+        "reference": "FDA / LegitScript Guidance"
     },
     "Same as Ozempic": {
-        "category": "Misleading Equivalence",
+        "category": "Implied Equivalence",
         "risk": 10,
-        "fix": "Do not suggest equivalence. Say 'Compounded GLP-1 similar in function but not identical to Ozempic.'",
-        "reference": "FDA prohibits implying compounded meds are equivalent to brand-name drugs."
-    },
-    "No prescription required": {
-        "category": "Prescription Compliance",
-        "risk": 15,
-        "fix": "State clearly that prescriptions require a provider review.",
-        "reference": "LegitScript Standard 6 - Consults must occur before prescribing medication."
+        "description": "Avoid implying compounded drugs are equivalent to brand-name products.",
+        "reference": "FDA Rules on Drug Compounding"
     },
     "Guaranteed weight loss": {
-        "category": "Unsubstantiated Claims",
+        "category": "Unsubstantiated Health Claim",
         "risk": 10,
-        "fix": "Use: 'Results vary. Medication is prescribed based on individual needs.'",
-        "reference": "FDA/FTC prohibit absolute guarantees in healthcare outcomes."
+        "description": "No guaranteed outcomes in health claims unless backed by peer-reviewed studies.",
+        "reference": "FTC Health Marketing Compliance"
     },
-    "privacy": {
-        "category": "HIPAA Compliance",
+    "No prescription required": {
+        "category": "Prescription Flow Violation",
+        "risk": 15,
+        "description": "Prescriptions must be issued after provider review. This phrase implies bypassing that.",
+        "reference": "LegitScript Standard 6"
+    },
+    "Lose \d+ lbs in \d+ (days|weeks|months)": {
+        "category": "Unverified Outcome",
         "risk": 10,
-        "fix": "Include a HIPAA-compliant privacy policy outlining PHI usage, rights, and contact person.",
-        "reference": "LegitScript Standard 9 - HIPAA-aligned privacy disclosure is required."
+        "description": "Numerical claims of weight loss must be backed by specific, cited clinical studies.",
+        "reference": "FTC / FDA Ad Guidelines"
     },
-    "phone": {
-        "category": "Contact Info",
-        "risk": 5,
-        "fix": "Add a callable business phone number to Contact page.",
-        "reference": "LegitScript Standard 8 - Patient Services requires contactable support."
+    "HIPAA": {
+        "category": "HIPAA Mention Check",
+        "risk": -1,
+        "description": "HIPAA mention detected; manual check still required to confirm PHI handling details.",
+        "reference": "HIPAA Privacy Rule"
     },
-    "address": {
-        "category": "Business Location",
-        "risk": 5,
-        "fix": "Add a valid business address for your organization and any affiliated pharmacy.",
-        "reference": "LegitScript Standard 8 - Real addresses for businesses and pharmacies are required."
+    "privacy policy": {
+        "category": "Privacy Policy Presence",
+        "risk": -1,
+        "description": "Check that the privacy policy includes PHI usage, patient rights, and privacy official contact.",
+        "reference": "LegitScript Standard 9 / HIPAA"
+    },
+    "pickup available": {
+        "category": "Dispensing Transparency",
+        "risk": 8,
+        "description": "Must clarify pharmacy pickup rules or remove if not allowed.",
+        "reference": "LegitScript Standard 8"
     },
     "compounded tirzepatide": {
-        "category": "FDA Shortage Compliance",
+        "category": "Post-Shortage Compounding Risk",
         "risk": 15,
-        "fix": "Remove unless you clearly justify compounding under FDA exemption and post-shortage protocols.",
-        "reference": "FDA Guidance Dec 2024: Tirzepatide is no longer in shortage."
+        "description": "Tirzepatide is no longer on the FDA shortage list. Usage must be clinically justified.",
+        "reference": "FDA Dec 2024 Guidance"
     }
 }
 
-def extract_text(url):
+# Helper function
+def extract_sections(html):
+    soup = BeautifulSoup(html, "html.parser")
+    sections = soup.find_all(["section", "div", "footer", "header", "article"])
+    page_sections = {}
+    for i, sec in enumerate(sections):
+        text = sec.get_text(separator=" ", strip=True)
+        if len(text) > 50:
+            page_sections[f"Section {i+1}"] = text[:300] + "..." if len(text) > 300 else text
+    return page_sections
+
+def scan_section(text):
+    findings = []
+    for phrase, rule in compliance_rules.items():
+        if re.search(phrase, text, re.IGNORECASE):
+            findings.append({
+                "phrase": phrase,
+                "category": rule["category"],
+                "risk": rule["risk"],
+                "description": rule["description"],
+                "reference": rule["reference"]
+            })
+    return findings
+
+def get_page_html(url):
     try:
         res = requests.get(url, timeout=10)
-        soup = BeautifulSoup(res.text, "html.parser")
-        return soup.get_text(separator=" ", strip=True)
+        res.raise_for_status()
+        return res.text, None
     except Exception as e:
         return None, str(e)
 
-def scan_for_violations(text):
-    findings = []
-    total_score = 100
-    for phrase, details in compliance_rules.items():
-        if re.search(rf'\b{re.escape(phrase)}\b', text, re.IGNORECASE):
-            total_score -= details["risk"]
-            findings.append({
-                "phrase": phrase,
-                "category": details["category"],
-                "risk": details["risk"],
-                "fix": details["fix"],
-                "reference": details["reference"]
-            })
-    return findings, max(total_score, 0)
-
 # Streamlit UI
-st.title("🛡️ LegitScript Compliance Scanner — Enhanced Audit")
-st.caption("Enter a telehealth site to get detailed FDA & LegitScript compliance audit")
+st.title("🛡️ Advanced Telehealth Compliance Scanner")
+st.caption("Strictly scans live websites for LegitScript, HIPAA, FDA, and FTC red flags")
 
-url = st.text_input("🔗 Website URL (e.g., https://example.com):")
+url = st.text_input("Paste a full URL (e.g., https://example.com):")
 
 if url:
-    with st.spinner("Scanning and analyzing website..."):
-        text, error = extract_text(url), None
-        if isinstance(text, tuple):  # error occurred
-            text, error = text
-        if error:
-            st.error(f"Error fetching content: {error}")
-        elif not text:
-            st.warning("No readable content found on the site.")
-        else:
-            results, score = scan_for_violations(text)
-            st.markdown(f"### 🧮 Compliance Score: `{score}/100`")
-            if score < 80:
-                st.info("This site may be at **moderate to high risk** of LegitScript rejection. Review below.")
+    with st.spinner("Analyzing page structure and scanning for violations..."):
+        html, err = get_page_html(url)
+        if err:
+            st.error(f"Error fetching page: {err}")
+        elif html:
+            section_texts = extract_sections(html)
+            total_risk = 0
+            total_findings = 0
+            st.markdown("## 🔍 Section-by-Section Analysis")
 
-            if results:
-                st.markdown("### ❌ Compliance Issues Detected:")
-                for issue in results:
-                    with st.expander(f"⚠️ {issue['phrase']} — {issue['category']}"):
-                        st.markdown(f"- **Risk Score Impact**: -{issue['risk']}")
-                        st.markdown(f"- **Why it's an issue**: {issue['reference']}")
-                        st.markdown(f"- **Suggested Fix**: {issue['fix']}")
-            else:
-                st.success("✅ No major compliance risks found.")
+            for sec_label, sec_text in section_texts.items():
+                findings = scan_section(sec_text)
+                if findings:
+                    with st.expander(f"⚠️ {sec_label} — {len(findings)} potential issue(s)"):
+                        for issue in findings:
+                            st.markdown(f"**Phrase:** `{issue['phrase']}`")
+                            st.markdown(f"- **Category:** {issue['category']}")
+                            st.markdown(f"- **Description:** {issue['description']}")
+                            st.markdown(f"- **Reference:** {issue['reference']}")
+                            st.markdown("---")
+                            total_risk += issue['risk'] if issue['risk'] > 0 else 0
+                            total_findings += 1
+                else:
+                    st.markdown(f"✅ {sec_label}: No major issues detected.")
+
+            final_score = max(100 - total_risk, 0)
+            st.markdown("## 📊 Overall Compliance Score")
+            st.markdown(f"### `{final_score}/100`")
+            if final_score < 80:
+                st.warning("⚠️ This site may face LegitScript certification risks. Review the flagged sections carefully.")
+            elif final_score == 100:
+                st.success("✅ No compliance issues detected across major rulesets.")
+
