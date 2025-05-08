@@ -1,3 +1,4 @@
+
 import streamlit as st
 import requests
 from bs4 import BeautifulSoup
@@ -5,66 +6,108 @@ import re
 
 st.set_page_config(page_title="LegitScript Compliance Scanner", layout="wide")
 
-# Risky phrases to flag
-risky_phrases = [
-    "FDA-approved semaglutide", "Same as Ozempic", "Generic Ozempic",
-    "Lose 20 lbs in 1 month", "Guaranteed weight loss", "Rapid weight loss solution",
-    "Safe and effective", "We offer Ozempic for less", "Order Mounjaro here",
-    "Get Wegovy compounded", "Magic shot for weight loss", "Cure for obesity",
-    "No side effects", "Risk-free weight loss", "Act now to claim your weight loss shot!",
-    "No prescription required"
-]
-
-# Structural checks
-other_checks = {
-    "Missing HIPAA-compliant privacy policy": ["privacy", "hipaa", "protected health information"],
-    "No physical address listed": ["address", "location", "contact"],
-    "No phone number found": ["phone", "call", "contact"],
-    "Compounded tirzepatide offered (post-shortage)": ["compounded tirzepatide"],
-    "Unverified customer reviews or rating claims": ["4.9 out of 5", "verified customer"],
-    "Unclear jurisdictional licensing": ["states we serve", "licensed in", "coverage area"],
-    "Mismatch across social media and site": ["NAD+", "enclomiphene", "metformin"],
-    "Misleading pickup claim": ["pickup available"]
+# Compliance rules
+compliance_rules = {
+    "FDA-approved semaglutide": {
+        "category": "Marketing Claims",
+        "risk": 10,
+        "fix": "Replace with: 'Compounded semaglutide is not FDA-approved and is only prescribed when appropriate.'",
+        "reference": "FDA + LegitScript: Compounded drugs must not be misrepresented as FDA-approved."
+    },
+    "Same as Ozempic": {
+        "category": "Misleading Equivalence",
+        "risk": 10,
+        "fix": "Do not suggest equivalence. Say 'Compounded GLP-1 similar in function but not identical to Ozempic.'",
+        "reference": "FDA prohibits implying compounded meds are equivalent to brand-name drugs."
+    },
+    "No prescription required": {
+        "category": "Prescription Compliance",
+        "risk": 15,
+        "fix": "State clearly that prescriptions require a provider review.",
+        "reference": "LegitScript Standard 6 - Consults must occur before prescribing medication."
+    },
+    "Guaranteed weight loss": {
+        "category": "Unsubstantiated Claims",
+        "risk": 10,
+        "fix": "Use: 'Results vary. Medication is prescribed based on individual needs.'",
+        "reference": "FDA/FTC prohibit absolute guarantees in healthcare outcomes."
+    },
+    "privacy": {
+        "category": "HIPAA Compliance",
+        "risk": 10,
+        "fix": "Include a HIPAA-compliant privacy policy outlining PHI usage, rights, and contact person.",
+        "reference": "LegitScript Standard 9 - HIPAA-aligned privacy disclosure is required."
+    },
+    "phone": {
+        "category": "Contact Info",
+        "risk": 5,
+        "fix": "Add a callable business phone number to Contact page.",
+        "reference": "LegitScript Standard 8 - Patient Services requires contactable support."
+    },
+    "address": {
+        "category": "Business Location",
+        "risk": 5,
+        "fix": "Add a valid business address for your organization and any affiliated pharmacy.",
+        "reference": "LegitScript Standard 8 - Real addresses for businesses and pharmacies are required."
+    },
+    "compounded tirzepatide": {
+        "category": "FDA Shortage Compliance",
+        "risk": 15,
+        "fix": "Remove unless you clearly justify compounding under FDA exemption and post-shortage protocols.",
+        "reference": "FDA Guidance Dec 2024: Tirzepatide is no longer in shortage."
+    }
 }
 
-# Fetch and parse page text
-def get_page_text(url):
+def extract_text(url):
     try:
         res = requests.get(url, timeout=10)
         soup = BeautifulSoup(res.text, "html.parser")
         return soup.get_text(separator=" ", strip=True)
     except Exception as e:
-        return f"Error fetching site: {e}"
+        return None, str(e)
 
-# Scan logic
-def scan_text(text):
-    issues = []
-    for phrase in risky_phrases:
+def scan_for_violations(text):
+    findings = []
+    total_score = 100
+    for phrase, details in compliance_rules.items():
         if re.search(rf'\b{re.escape(phrase)}\b', text, re.IGNORECASE):
-            issues.append(f"⚠️ Risky marketing phrase found: **{phrase}**")
-
-    for label, keywords in other_checks.items():
-        if not any(k.lower() in text.lower() for k in keywords):
-            issues.append(f"❌ Potential issue: **{label}**")
-
-    return issues
+            total_score -= details["risk"]
+            findings.append({
+                "phrase": phrase,
+                "category": details["category"],
+                "risk": details["risk"],
+                "fix": details["fix"],
+                "reference": details["reference"]
+            })
+    return findings, max(total_score, 0)
 
 # Streamlit UI
-st.title("🛡️ LegitScript Compliance Scanner")
-st.caption("Audit telehealth sites for FDA and LegitScript compliance")
+st.title("🛡️ LegitScript Compliance Scanner — Enhanced Audit")
+st.caption("Enter a telehealth site to get detailed FDA & LegitScript compliance audit")
 
-url = st.text_input("Enter a full website URL (e.g., https://example.com):")
+url = st.text_input("🔗 Website URL (e.g., https://example.com):")
 
 if url:
-    with st.spinner("Scanning website..."):
-        text = get_page_text(url)
-        if text.startswith("Error"):
-            st.error(text)
+    with st.spinner("Scanning and analyzing website..."):
+        text, error = extract_text(url), None
+        if isinstance(text, tuple):  # error occurred
+            text, error = text
+        if error:
+            st.error(f"Error fetching content: {error}")
+        elif not text:
+            st.warning("No readable content found on the site.")
         else:
-            findings = scan_text(text)
-            if findings:
-                st.warning("⚠️ Compliance Issues Found:")
-                for f in findings:
-                    st.markdown(f)
+            results, score = scan_for_violations(text)
+            st.markdown(f"### 🧮 Compliance Score: `{score}/100`")
+            if score < 80:
+                st.info("This site may be at **moderate to high risk** of LegitScript rejection. Review below.")
+
+            if results:
+                st.markdown("### ❌ Compliance Issues Detected:")
+                for issue in results:
+                    with st.expander(f"⚠️ {issue['phrase']} — {issue['category']}"):
+                        st.markdown(f"- **Risk Score Impact**: -{issue['risk']}")
+                        st.markdown(f"- **Why it's an issue**: {issue['reference']}")
+                        st.markdown(f"- **Suggested Fix**: {issue['fix']}")
             else:
-                st.success("✅ No major compliance issues found.")
+                st.success("✅ No major compliance risks found.")
